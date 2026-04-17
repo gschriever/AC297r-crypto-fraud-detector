@@ -1,0 +1,18 @@
+# OS
+.DS_Store
+
+# Temporary files
+~$*
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Project specific
+archive/
+scrape_stealth.log
+parsed_presentation.txt
