@@ -21,22 +21,26 @@ Analytics pull, $1M–$1B annualized volume) in two layers:
 
 ## Key result
 
-On the 14 validated tokens (6 FRAUD + 8 non-fraud anomalies), the **continuous
-suspicion score at a p90 cutoff catches 100% of known fraud (6/6)** while the
-legacy *discrete* 3-vote consensus catches only 17% (1/6). The Layer-2
-calibrator cleanly separates the three large non-fraud events (SLP / 3Crv / MIM,
-all P(fraud) ≤ 0.15) from rug-like tokens, with the fraud/hack/bug distinction
-in the middle band being genuinely hard at this sample size.
+On **60 validated tokens** (8 FRAUD, 35 NORMAL, 11 BENIGN, 3 HACK, 2 BUG, 1 SHOCK),
+the **continuous suspicion score at a p85 cutoff catches 100% of known fraud (8/8)**
+while the legacy *discrete* 3-vote consensus catches only 25% (2/8). Layer 2
+cleanly separates fraud from normal behavior even when both trigger the same
+Layer 1 alarm — WLFI, DEGEN, STRAT, 3Crv and MIM all score P(fraud) < 0.05
+despite being 3-vote consensus anomalies, while WFT, PLASMA, YJM and CZI score
+P(fraud) > 0.6 despite PLASMA/YJM/CZI triggering zero discrete votes.
 
-| Strategy | Flag rate | Fraud recall (n=6) |
+| Strategy | Flag rate | Fraud recall (n = 8) |
 |---|---|---|
 | Naive: `volume_spike_ratio > p95` | 5% | 0% |
 | Random 5% sample | 5% | 5% |
-| Ensemble, ≥2 votes (legacy) | 3.6% | 17% |
-| Ensemble, 3 votes (legacy) | 2.3% | 17% |
-| **Ensemble, `suspicion_score ≥ p90`** | **10%** | **100%** |
+| Ensemble, ≥ 2 votes (legacy) | 3.6% | 25% |
+| Ensemble, 3 votes (legacy) | 2.3% | 25% |
+| **Ensemble, `suspicion_score ≥ p90`** | **10%** | **88%** |
+| **Ensemble, `suspicion_score ≥ p85`** | **15%** | **100%** |
 
 See [artifacts/baseline_comparison.png](artifacts/baseline_comparison.png) for the chart.
+
+**Layer 2 calibration on the labeled subset:** LOO accuracy = **0.883**, Brier = 0.098.
 
 ## Reproducing the results
 
@@ -91,17 +95,19 @@ produces the canonical `tokens_scored.csv` that every downstream script reads.
 
 ## Caveats
 
-- The Layer-2 calibrator is fit on **n=14 tokens**. LOO accuracy is ~0.50 at this
-  sample size — the reliable story is "we can separate big legitimate events
-  from rug-like tokens," not "we know the precise fraud probability of an
-  arbitrary flagged token." Expanding the validation set is the most valuable
-  single improvement available.
-- Token symbols collide on Ethereum (multiple addresses can share a ticker).
-  The validation registry is keyed on symbol with case-insensitive lowercase
-  matching; ideally it should be re-keyed on `token_address`.
-- 37% of tokens (1,588 of 4,334) lack the 24-hour temporal features and are
-  imputed with the global median. These tokens still participate in scoring
-  but their temporal features should not be over-interpreted.
+- **Class imbalance in the validation set.** 8 FRAUD vs. 52 non-FRAUD in the
+  current n = 60 labeled subset. The calibrator uses `class_weight='balanced'`
+  but more fraud labels would tighten the middle band.
+- **MEDIUM-confidence NORMAL rows.** 17 of 35 NORMAL labels rest on Etherscan
+  verification + holder-count signals rather than a primary source. A handful
+  could be undocumented rugs.
+- **37% imputed temporal features.** 1,588 of 4,334 tokens lack 24-hour
+  post-launch data and receive the global median. Their temporal features
+  should not be over-interpreted.
+- **Registry is now address-keyed**, which fixes the ticker-collision issue
+  that plagued the v1 registry (MIM, TETH, YANG each map to multiple Ethereum
+  contracts). The canonical file is
+  [validation_registry.csv](validation_registry.csv).
 
 ---
 

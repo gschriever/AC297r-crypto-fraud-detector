@@ -48,28 +48,13 @@ STATIC_FEATURES = [
 TEMPORAL_FEATURES = ["early_velocity_ratio", "early_trade_dominance"]
 LOG_FEATURES = {"volume_spike_ratio", "absolute_max_daily_volume_usd"}
 
-# Hand-curated validation registry (mirror of VALIDATION_RESULTS.md).
-# FRAUD = intentional malicious developer intent; everything else is a
-# "true anomaly" but not fraud. Used downstream for calibration.
-VALIDATION = pd.DataFrame(
-    [
-        ("TETH", "BUG"),
-        ("SLP", "HACK"),
-        ("3Crv", "BENIGN"),
-        ("plasma", "FRAUD"),
-        ("CZI", "FRAUD"),
-        ("VAL", "FRAUD"),
-        ("GREED", "FRAUD"),
-        ("MIM", "SHOCK"),
-        ("YANG", "HACK"),
-        ("WFT", "FRAUD"),
-        ("apxUSD", "BENIGN"),
-        ("YJM", "FRAUD"),
-        ("rstETH", "BENIGN"),
-        ("hemiBTC", "BENIGN"),
-    ],
-    columns=["token_symbol", "taxonomy"],
-)
+# Validation registry — combines the original 14 hand-curated labels with
+# an additional 55 web-researched labels (see validation_registry.csv).
+# Schema: token_address, token_symbol, taxonomy, is_fraud, is_anomaly_expected,
+#         confidence, source, justification, primary_source_url.
+# Address-keyed (symbols collide on Ethereum). UNKNOWN rows are held out of
+# supervised evaluation; NORMAL rows are true negatives for Layer 1.
+VALIDATION_CSV = ROOT / "validation_registry.csv"
 
 
 # ---- Load + merge ------------------------------------------------------------
@@ -150,11 +135,13 @@ def score_suspicion(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def attach_validation(df: pd.DataFrame) -> pd.DataFrame:
-    # Token symbols on Ethereum are case-variable; match case-insensitively.
-    v = VALIDATION.assign(_key=VALIDATION["token_symbol"].str.lower()).drop(columns="token_symbol")
-    df = df.merge(v, left_on=df["token_symbol"].str.lower(), right_on="_key", how="left").drop(columns="_key")
-    df["is_fraud"] = (df["taxonomy"] == "FRAUD").astype(int)
+    # Registry is address-keyed (symbols collide on Ethereum). Merge on
+    # token_address, pulling in taxonomy + derived flags.
+    reg = pd.read_csv(VALIDATION_CSV)
+    reg = reg[["token_address", "taxonomy", "is_fraud", "is_anomaly_expected", "confidence"]]
+    df = df.merge(reg, on="token_address", how="left")
     df["is_validated"] = df["taxonomy"].notna().astype(int)
+    df["is_fraud"] = df["is_fraud"].fillna(0).astype(int)
     return df
 
 
@@ -244,7 +231,9 @@ def write_artifacts(df: pd.DataFrame, pca: PCA) -> dict:
         "PCA2",
         "PCA3",
         "taxonomy",
+        "confidence",
         "is_fraud",
+        "is_anomaly_expected",
         "is_validated",
     ]
     df[scored_cols].to_csv(ARTIFACTS / "tokens_scored.csv", index=False)

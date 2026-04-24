@@ -92,16 +92,17 @@ def apply_calibrator(
     scaler: StandardScaler,
     feature_ranges: dict,
 ) -> pd.DataFrame:
-    # P(fraud | suspicious) is only defined on the suspicious subset. Applying
-    # the calibrator to non-flagged tokens is extrapolation; leave those NaN.
-    # Within the flagged set, clip each feature to the calibration range so
-    # tokens far outside the labeled subset don't get absurd probabilities.
+    # P(fraud | suspicious) is only defined on the suspicious subset. We gate
+    # on the continuous suspicion_score ≥ p90 (matches the Layer-1 headline
+    # rule), not on the legacy discrete vote count. Also clip features to
+    # calibration range to prevent extrapolation from producing absurd probs.
     X = df[CALIBRATION_FEATURES].copy()
     for f, (lo, hi) in feature_ranges.items():
         X[f] = X[f].clip(lower=lo, upper=hi)
     X_scaled = scaler.transform(X.to_numpy())
     probs = model.predict_proba(X_scaled)[:, 1]
-    df["p_fraud"] = np.where(df["consensus_votes"] >= 1, probs, np.nan)
+    gate = df["suspicion_score"] >= df["suspicion_score"].quantile(0.90)
+    df["p_fraud"] = np.where(gate, probs, np.nan)
     return df
 
 
@@ -135,16 +136,11 @@ def plot_calibration(report: dict, df: pd.DataFrame) -> None:
 
 def main() -> None:
     df = pd.read_csv(SCORED)
-    validated = df[df["is_validated"] == 1].dropna(subset=CALIBRATION_FEATURES).copy()
-    # Token symbols collide on Ethereum (multiple addresses can share a
-    # ticker, and casing varies). Dedup on lowercase symbol, keeping the
-    # most-anomalous candidate — that's the one most likely to *be* the
-    # token cited in VALIDATION_RESULTS.md.
+    # Use only labeled tokens for calibration — drop UNKNOWN (held out).
+    # Registry is address-keyed so no symbol-collision dedup is needed.
     validated = (
-        validated.assign(_key=validated["token_symbol"].str.lower())
-        .sort_values(["consensus_votes", "suspicion_score"], ascending=False)
-        .drop_duplicates(subset="_key", keep="first")
-        .drop(columns="_key")
+        df[(df["is_validated"] == 1) & (df["taxonomy"] != "UNKNOWN")]
+        .dropna(subset=CALIBRATION_FEATURES)
         .reset_index(drop=True)
     )
 
