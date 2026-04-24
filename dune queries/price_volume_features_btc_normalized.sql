@@ -165,25 +165,36 @@ v1_features AS (
     FROM joined
     GROUP BY 1
 ),
-v2_features AS (
+-- Each token's peak daily volume, pre-computed so the v2_features CTE
+-- below can compare rows against it without nesting a window function
+-- inside an aggregate (which Trino forbids).
+token_peak AS (
     SELECT token_address,
+           MAX(daily_volume_usd) AS peak_daily_volume
+    FROM joined
+    GROUP BY token_address
+),
+v2_features AS (
+    SELECT j.token_address,
            -- Spike ratio of the token-over-BTC ratio.  If the token's ratio
            -- to BTC peaks hard, that's a token-specific move (BTC's own
            -- volume was already in the denominator).
-           MAX(token_over_btc_vol_ratio)
-             / NULLIF(AVG(token_over_btc_vol_ratio), 0) AS volume_spike_ratio_btc_adj,
+           MAX(j.token_over_btc_vol_ratio)
+             / NULLIF(AVG(j.token_over_btc_vol_ratio), 0) AS volume_spike_ratio_btc_adj,
            -- Fraction of token's total USD volume that happened on days
            -- BTC itself was extreme.  High values = BTC-driven activity.
-           SUM(CASE WHEN is_btc_extreme THEN daily_volume_usd ELSE 0 END)
-             / NULLIF(SUM(daily_volume_usd), 0) AS pct_volume_on_btc_extreme_days,
-           -- Did the token peak on a BTC-extreme day?
-           MAX(CASE WHEN daily_volume_usd = (MAX(daily_volume_usd) OVER (PARTITION BY token_address))
-                     AND is_btc_extreme THEN 1 ELSE 0 END) AS peak_coincident_btc_extreme,
+           SUM(CASE WHEN j.is_btc_extreme THEN j.daily_volume_usd ELSE 0 END)
+             / NULLIF(SUM(j.daily_volume_usd), 0) AS pct_volume_on_btc_extreme_days,
+           -- Did the token peak on a BTC-extreme day?  tp.peak_daily_volume
+           -- is already the per-token max, so no window nesting needed.
+           MAX(CASE WHEN j.daily_volume_usd = tp.peak_daily_volume
+                     AND j.is_btc_extreme THEN 1 ELSE 0 END) AS peak_coincident_btc_extreme,
            -- Pearson correlation between token daily volume and BTC daily
            -- volume. Negative / near-zero = token behaves independently of BTC.
-           CORR(daily_volume_usd, btc_daily_volume_usd) AS volume_correlation_btc
-    FROM joined
-    GROUP BY 1
+           CORR(j.daily_volume_usd, j.btc_daily_volume_usd) AS volume_correlation_btc
+    FROM joined j
+    JOIN token_peak tp ON j.token_address = tp.token_address
+    GROUP BY j.token_address
 )
 
 SELECT v1.token_address,
