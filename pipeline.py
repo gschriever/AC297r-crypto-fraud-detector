@@ -31,6 +31,11 @@ from sklearn.preprocessing import StandardScaler
 ROOT = Path(__file__).resolve().parent
 BASE_CSV = ROOT / "Gillian_Price_and_Volume_Dynamic_Query_with_Token_Boundary_Conditions_QUERY_EXPORT.csv"
 TEMPORAL_CSV = ROOT / "dune queries" / "Temporal_Price_Volume_Dynamics_24h_Window_Extraction.csv"
+# Optional BTC-normalized features produced by the v2 SQL
+# (dune queries/price_volume_features_btc_normalized.sql).  When this file
+# is present, the pipeline joins these columns in and the detectors can
+# run on either the v1 (unadjusted) or v2 (BTC-adjusted) feature set.
+BTC_NORMALIZED_CSV = ROOT / "dune queries" / "BTC_Normalized_Features_EXPORT.csv"
 ARTIFACTS = ROOT / "artifacts"
 
 RANDOM_STATE = 42
@@ -46,7 +51,18 @@ STATIC_FEATURES = [
     "max_trade_dominance",
 ]
 TEMPORAL_FEATURES = ["early_velocity_ratio", "early_trade_dominance"]
-LOG_FEATURES = {"volume_spike_ratio", "absolute_max_daily_volume_usd"}
+# BTC-normalized features — only used when BTC_NORMALIZED_CSV is present.
+BTC_FEATURES = [
+    "volume_spike_ratio_btc_adj",
+    "pct_volume_on_btc_extreme_days",
+    "peak_coincident_btc_extreme",
+    "volume_correlation_btc",
+]
+LOG_FEATURES = {
+    "volume_spike_ratio",
+    "absolute_max_daily_volume_usd",
+    "volume_spike_ratio_btc_adj",
+}
 
 # Validation registry — combines the original 14 hand-curated labels with
 # an additional 55 web-researched labels (see validation_registry.csv).
@@ -67,12 +83,29 @@ def load_data() -> pd.DataFrame:
     df = base.merge(temporal, on="token_address", how="left")
     df["has_temporal_data"] = df["early_velocity_ratio"].notna()
 
+    # Optional BTC-normalized features.  These require a re-run of the
+    # dune queries/price_volume_features_btc_normalized.sql query and an
+    # export to BTC_NORMALIZED_CSV.  When absent, the pipeline proceeds
+    # with v1 features only.
+    df["has_btc_normalized"] = False
+    if BTC_NORMALIZED_CSV.exists():
+        btc = pd.read_csv(BTC_NORMALIZED_CSV)
+        # Keep only the new BTC-adjusted columns; v1 columns already in df.
+        keep = ["token_address"] + [c for c in BTC_FEATURES if c in btc.columns]
+        df = df.merge(btc[keep], on="token_address", how="left")
+        df["has_btc_normalized"] = df[BTC_FEATURES[0]].notna() if BTC_FEATURES[0] in df.columns else False
+
     numeric_cols = STATIC_FEATURES + TEMPORAL_FEATURES
+    if df["has_btc_normalized"].any():
+        numeric_cols = numeric_cols + BTC_FEATURES
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna(subset=STATIC_FEATURES).copy()
 
     for col in TEMPORAL_FEATURES:
         df[col] = df[col].fillna(df[col].median())
+    for col in BTC_FEATURES:
+        if col in df.columns:
+            df[col] = df[col].fillna(df[col].median())
 
     return df
 
@@ -82,9 +115,12 @@ def load_data() -> pd.DataFrame:
 
 def build_feature_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
     feature_cols = STATIC_FEATURES + TEMPORAL_FEATURES
+    if df["has_btc_normalized"].any() and all(c in df.columns for c in BTC_FEATURES):
+        feature_cols = feature_cols + BTC_FEATURES
     X = df[feature_cols].copy()
     for col in LOG_FEATURES:
-        X[col] = np.log1p(X[col].clip(lower=0))
+        if col in X.columns:
+            X[col] = np.log1p(X[col].clip(lower=0))
     X_scaled = StandardScaler().fit_transform(X.values)
     return X_scaled, feature_cols
 

@@ -59,10 +59,48 @@ python explain.py
 
 # Sensitivity sweep + naive-baseline comparison
 python evaluate.py
+
+# Optional — BTC regime characterization (requires artifacts/btc_daily.csv,
+# produced by fetching CryptoCompare or similar; see btc_analysis.py)
+python btc_analysis.py
 ```
 
-All four scripts write to `./artifacts/`. `pipeline.py` is the entry point and
-produces the canonical `tokens_scored.csv` that every downstream script reads.
+All four core scripts write to `./artifacts/`. `pipeline.py` is the entry point
+and produces the canonical `tokens_scored.csv` that every downstream script reads.
+
+### BTC normalization (optional, requires Dune re-run)
+
+Small-cap tokens inherit a lot of market movement from Bitcoin. To remove that
+macro component from each token's anomaly signal we need daily-granularity data
+on *both* sides (the token and BTC), which the original SQL doesn't produce.
+
+The blueprint is in [dune queries/price_volume_features_btc_normalized.sql](dune%20queries/price_volume_features_btc_normalized.sql).
+It joins per-token daily volume against daily WBTC-on-Ethereum volume (same
+`dex.trades` table, same venue, same unit) and produces four additional
+per-token features:
+
+- `volume_spike_ratio_btc_adj` — spike ratio of token-volume / WBTC-volume
+- `pct_volume_on_btc_extreme_days` — fraction of the token's annual volume
+  that landed on days when WBTC itself was in its top-5% volume regime
+- `peak_coincident_btc_extreme` — 1 if the token's peak-volume day was a
+  WBTC-extreme day, 0 otherwise
+- `volume_correlation_btc` — Pearson correlation of daily volumes
+
+To activate these in the pipeline:
+
+1. Run the SQL on Dune and export to
+   `dune queries/BTC_Normalized_Features_EXPORT.csv`.
+2. Re-run `python pipeline.py`. It auto-detects the new CSV, joins the four
+   features into the feature matrix, and all three Layer-1 detectors then
+   see them alongside the original six features.
+
+**Why this matters empirically:** BTC's own volume-spike ratio during the
+365-day window was only 3.75× (see [btc_analysis.py](btc_analysis.py) output).
+Our 3-vote consensus anomalies routinely show spike ratios of 100-300×, so
+the headline fraud recall result is unlikely to change — those signals are
+25-80× more extreme than BTC could explain. The normalization is most useful
+in the mid-band (tokens with spike ratios 5-20×), which sits below our current
+flagging threshold anyway.
 
 ## Files
 
