@@ -76,15 +76,14 @@ work, written for a reader who hasn't been following the day-to-day.
 
 ## Files added or changed this session
 
-- [`poster templaates/AC297r_Poster_Template.pptx`](AC297r_Poster_Template.pptx)
-  — new panels (Objectives, Conclusions, References, Figures),
-  rounded corners, drop shadows
-- [`poster templaates/generate_poster_template.py`](generate_poster_template.py)
-  — generator updated
 - [`poster templaates/notes_clustering.md`](notes_clustering.md) — new
 - [`poster templaates/draft_introduction.md`](draft_introduction.md) — new
 - `pipeline.py`, `README.md`, `dune queries/BTC_Normalized_Features_EXPORT.csv`
   — already committed earlier in the session
+
+Note: the poster PowerPoint and its Python generator live in the team's
+Google Drive folder, not this repo, to keep the source of truth in one
+place. Don't commit `.pptx` posters back into `poster templaates/`.
 
 ## Deferred, revisit later
 
