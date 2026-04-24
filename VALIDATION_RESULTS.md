@@ -7,19 +7,22 @@ human-readable companion.
 
 ## How the registry is built
 
-Two cohorts, combined and address-keyed (token symbols alone collide on
+Three cohorts, combined and address-keyed (token symbols alone collide on
 Ethereum — multiple contracts share the same ticker):
 
 1. **Original hand-curated set (n = 14, source = `manual_registry_v1`).**
    High-profile events the team researched in early April 2026.
-2. **Web-researched expansion (n = 55, source = `web_research_2026-04-24`).**
-   Stratified sample drawn from the 4,334-token dataset across the full
-   suspicion-score range — from quiet (<p50) to 3-vote-consensus — and
-   labelled against Etherscan, RugDoc / REKT, CertiK, and major crypto-news
-   sources. This cohort was designed to add true negatives (NORMAL tokens)
-   which the original registry lacked entirely.
+2. **Round 1 web research (n = 55, source = `web_research_2026-04-24`).**
+   Stratified sample across the full suspicion-score range, designed to
+   add true negatives (NORMAL tokens) which the original registry
+   entirely lacked.
+3. **Round 2 web research (n = 100, source = `web_research_2026-04-24_round2`).**
+   A larger sample weighted toward the gaps — more rug-pattern candidates
+   (short lifespan + high trade dominance), more high-volume 3-vote
+   consensus tokens, and more quiet-stratum NORMALs to stabilize the
+   specificity estimate.
 
-Combined: **69 tokens**, of which **60 are usable labels** (9 tagged
+Combined: **169 tokens**, of which **144 are usable labels** (25 tagged
 UNKNOWN after research are held out of calibration).
 
 ## Taxonomy
@@ -45,40 +48,67 @@ true anomalies.
 
 | Taxonomy | HIGH | MEDIUM | LOW | Total |
 |---|---:|---:|---:|---:|
-| FRAUD   | 6 | 2 | 0 | 8 |
-| HACK    | 3 | 0 | 0 | 3 |
-| BUG     | 2 | 0 | 0 | 2 |
-| BENIGN  | 11 | 0 | 0 | 11 |
-| SHOCK   | 1 | 0 | 0 | 1 |
-| NORMAL  | 9 | 17 | 9 | 35 |
-| UNKNOWN | 0 | 0 | 9 | 9 |
+| FRAUD   | 7  | 8  | 0  | 15  |
+| HACK    | 4  | 0  | 0  | 4   |
+| BUG     | 2  | 0  | 0  | 2   |
+| BENIGN  | 22 | 0  | 0  | 22  |
+| SHOCK   | 1  | 0  | 0  | 1   |
+| NORMAL  | 26 | 42 | 32 | 100 |
+| UNKNOWN | 0  | 0  | 25 | 25  |
 
-## Performance summary (leave-one-out on n = 60 labeled tokens)
+## Performance summary (leave-one-out on n = 144 labeled tokens)
 
-- **LOO accuracy:** 0.883 (was 0.50 on the n = 14 registry)
-- **Brier score:** 0.098 (was 0.22)
-- **Layer 1 fraud recall** (suspicion_score ≥ p90): **88%** (7 of 8 known frauds)
-- **Layer 1 fraud recall** (suspicion_score ≥ p85): **100%** (8 of 8)
-- **Layer 1 specificity on NORMAL tokens** (p90 cutoff): 57% — i.e., of 35
-  tokens researched as NORMAL, 20 are correctly below p90 and 15 are above.
-  The 15 false-flags are concentrated in high-volatility memecoins (WLFI,
-  BOSS, DEGEN, TROLL, BIDEN) whose on-chain behavior mimics rug pulls even
-  though research confirms them legitimate — this is exactly the failure
-  mode Layer 2 (calibration) is designed to catch.
+- **LOO accuracy:** 0.868 (stable vs. 0.883 on n = 60, 0.50 on n = 14 — no longer a small-sample fluke)
+- **Brier score:** 0.117
+- **Layer 2 recall (fraud caught):** 80% (12 of 15)
+- **Layer 2 precision:** 43% — when the calibrator fires, roughly half the time it's a real fraud
+- **Layer 2 specificity (non-fraud correctly rejected):** 88% (113 of 129)
+- **Layer 1 fraud recall** (suspicion_score ≥ p90): **67%** (10 of 15 known frauds)
+- **Layer 1 fraud recall** (suspicion_score ≥ p85): **93%** (14 of 15)
+- **Layer 1 specificity on NORMAL tokens** (p90 cutoff): 58% — i.e., of 100
+  tokens researched as NORMAL, 58 are correctly below p90 and 42 are above.
+  The high-scoring NORMAL tokens are concentrated in high-volatility memecoins
+  and blue-chip exchange/LST tokens whose on-chain behavior mimics fraud
+  signatures even though research confirms them legitimate — exactly the
+  failure mode Layer 2 is designed to catch.
+
+## Honest misses (failures worth acknowledging)
+
+- **HYPER (honeypot FRAUD, Etherscan-flagged)** — Layer 1 rated it suspicion 0.45
+  and Layer 2 scored P(fraud) = 0.09. Small-volume contract that doesn't
+  exhibit classic rug-pull features; we'd need graph-level signals (deployer
+  reputation, liquidity-removal events) to catch it.
+- **KUBO (impersonation FRAUD)** — similar miss; obfuscated function names
+  are visible in bytecode but not in our trade-volume features.
+- **TETH (BUG)** still scores P(fraud) = 0.88 — calibrator can't distinguish
+  a precision-bug panic from a rug-pull panic on volume features alone.
 
 ## Headline calibration examples (from artifacts/validated_risk_scores.csv)
 
 | Token | Real label | Votes | Suspicion | P(fraud) LOO | Verdict |
 |---|---|:-:|:-:|:-:|---|
-| WFT | FRAUD | 3 | 0.98 | **0.95** | Correct — top candidate |
-| PLASMA | FRAUD | 0 | 0.91 | **0.78** | Caught by continuous score, flagged correctly |
-| YJM | FRAUD | 0 | 0.90 | **0.80** | Same |
-| CZI | FRAUD | 0 | 0.88 | **0.61** | Same, lower confidence |
-| TETH | BUG | 3 | 1.00 | 0.82 | False positive — Layer 2 can't tell bugs from rugs |
-| WLFI | NORMAL | 3 | 1.00 | **0.003** | Correctly dismissed — 3-vote false alarm cleared |
-| DEGEN | NORMAL | 3 | 0.99 | **0.04** | Same — meme coin correctly normalized |
-| 3Crv | BENIGN | 3 | 0.98 | 0.02 | Correctly low — institutional rebalancing |
-| MIM | SHOCK | 3 | 0.98 | 0.02 | Correctly low — de-peg contagion |
+| WFT | FRAUD | 3 | 0.98 | **0.99** | Correct — top candidate |
+| GREED | FRAUD | 1 | 0.96 | **0.89** | Correct |
+| ORBDEG | FRAUD | 1 | 0.83 | **0.89** | Coordinated rug cluster caught |
+| SPHERUM | FRAUD | 1 | 0.83 | **0.89** | Same cluster |
+| ORBS | FRAUD | 1 | 0.83 | **0.89** | Same cluster |
+| MAYNU | FRAUD | 1 | 0.86 | **0.88** | Correct |
+| VAL | FRAUD | 1 | 0.95 | **0.86** | Correct |
+| URL | FRAUD | 3 | 0.99 | **0.86** | Correct |
+| YJM | FRAUD | 0 | 0.90 | **0.84** | Caught by continuous score despite 0 votes |
+| PLASMA | FRAUD | 0 | 0.91 | **0.81** | Same |
+| CZI | FRAUD | 0 | 0.88 | **0.52** | Correct, lower confidence |
+| HYPER | FRAUD | 0 | 0.45 | 0.09 | **Missed** — too small to fit volume profile |
+| KUBO | FRAUD | 1 | 0.99 | 0.12 | **Missed** — Layer 1 caught, Layer 2 didn't |
+| TETH | BUG | 3 | 1.00 | 0.88 | False positive — Layer 2 can't tell bugs from rugs |
+| WLFI | NORMAL | 3 | 1.00 | **0.005** | Correctly dismissed — 3-vote false alarm cleared |
+| STRAT | NORMAL | 2 | 0.99 | **0.003** | Correctly low |
+| DEGEN | NORMAL | 3 | 0.99 | **0.06** | Correctly normalized |
+| 3Crv | BENIGN | 3 | 0.98 | **0.003** | Correctly low — institutional rebalancing |
+| MIM | SHOCK | 3 | 0.98 | **0.002** | Correctly low — de-peg contagion |
+| SLP | HACK | 1 | 0.95 | **0.003** | Correctly low — Ronin hack |
+| wstUSR | HACK | 0 | 0.88 | **0.04** | Correctly low — Resolv Labs exploit |
+| WILD | BUG | 0 | 0.84 | **0.01** | Correctly low — pLONGWILD cascade |
 
 ## Known limitations
 

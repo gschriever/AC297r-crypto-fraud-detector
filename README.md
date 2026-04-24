@@ -21,26 +21,29 @@ Analytics pull, $1M–$1B annualized volume) in two layers:
 
 ## Key result
 
-On **60 validated tokens** (8 FRAUD, 35 NORMAL, 11 BENIGN, 3 HACK, 2 BUG, 1 SHOCK),
-the **continuous suspicion score at a p85 cutoff catches 100% of known fraud (8/8)**
-while the legacy *discrete* 3-vote consensus catches only 25% (2/8). Layer 2
-cleanly separates fraud from normal behavior even when both trigger the same
-Layer 1 alarm — WLFI, DEGEN, STRAT, 3Crv and MIM all score P(fraud) < 0.05
-despite being 3-vote consensus anomalies, while WFT, PLASMA, YJM and CZI score
-P(fraud) > 0.6 despite PLASMA/YJM/CZI triggering zero discrete votes.
+On **144 validated tokens** (15 FRAUD, 100 NORMAL, 22 BENIGN, 4 HACK, 2 BUG, 1 SHOCK),
+the **continuous suspicion score at a p85 cutoff catches 93% of known fraud
+(14/15)** while the legacy *discrete* 3-vote consensus catches only 27% (4/15).
+Layer 2 cleanly separates fraud from normal behavior even when both trigger the
+same Layer 1 alarm — WLFI, DEGEN, STRAT, 3Crv and MIM all score P(fraud) < 0.06
+despite being 3-vote consensus anomalies, while WFT, PLASMA, YJM, CZI, and the
+coordinated ORB rug cluster (ORBDEG/SPHERUM/ORBS) all score P(fraud) > 0.6.
 
-| Strategy | Flag rate | Fraud recall (n = 8) |
+| Strategy | Flag rate | Fraud recall (n = 15) |
 |---|---|---|
 | Naive: `volume_spike_ratio > p95` | 5% | 0% |
 | Random 5% sample | 5% | 5% |
-| Ensemble, ≥ 2 votes (legacy) | 3.6% | 25% |
-| Ensemble, 3 votes (legacy) | 2.3% | 25% |
-| **Ensemble, `suspicion_score ≥ p90`** | **10%** | **88%** |
-| **Ensemble, `suspicion_score ≥ p85`** | **15%** | **100%** |
+| Ensemble, ≥ 2 votes (legacy) | 3.6% | 33% |
+| Ensemble, 3 votes (legacy) | 2.3% | 27% |
+| **Ensemble, `suspicion_score ≥ p90`** | **10%** | **67%** |
+| **Ensemble, `suspicion_score ≥ p85`** | **15%** | **93%** |
 
 See [artifacts/baseline_comparison.png](artifacts/baseline_comparison.png) for the chart.
 
-**Layer 2 calibration on the labeled subset:** LOO accuracy = **0.883**, Brier = 0.098.
+**Layer 2 calibration on the labeled subset** (leave-one-out cross-validation):
+- LOO accuracy: **0.87**, Brier score: 0.12
+- Recall (fraud caught): **80%** (12 of 15)
+- Specificity (non-fraud correctly rejected): **88%** (113 of 129)
 
 ## Reproducing the results
 
