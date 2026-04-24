@@ -208,5 +208,5 @@ SELECT v1.token_address,
        v2.peak_coincident_btc_extreme,
        v2.volume_correlation_btc
 FROM v1_features v1
-LEFT JOIN v2_features v2 USING (token_address)
+LEFT JOIN v2_features v2 ON v1.token_address = v2.token_address
 ORDER BY v1.volume_spike_ratio DESC;
