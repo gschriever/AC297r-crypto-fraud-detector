@@ -68,39 +68,48 @@ python btc_analysis.py
 All four core scripts write to `./artifacts/`. `pipeline.py` is the entry point
 and produces the canonical `tokens_scored.csv` that every downstream script reads.
 
-### BTC normalization (optional, requires Dune re-run)
+### BTC normalization — lesson from the round-2 experiment
 
-Small-cap tokens inherit a lot of market movement from Bitcoin. To remove that
-macro component from each token's anomaly signal we need daily-granularity data
-on *both* sides (the token and BTC), which the original SQL doesn't produce.
+We ran the BTC-normalized SQL and joined the four new features into Layer 1
+to see if removing the macro-BTC component would tighten fraud recall. It
+didn't — it actually **hurt** recall (14/15 → 11/15 at p85).
 
-The blueprint is in [dune queries/price_volume_features_btc_normalized.sql](dune%20queries/price_volume_features_btc_normalized.sql).
-It joins per-token daily volume against daily WBTC-on-Ethereum volume (same
-`dex.trades` table, same venue, same unit) and produces four additional
-per-token features:
+**Why:** most of our validated frauds are **short-lived rugs** (median 4
+days of activity). Over such a short window, `volume_correlation_btc` is
+either undefined (NaN on 1-day tokens) or extremely noisy, and the token
+almost never happens to be active on a BTC-extreme day. When those NaN
+features get imputed to the cohort median and fed to the ensemble, the
+short-lived rugs get pulled toward the "normal" center in the enlarged
+feature space. The BTC features separate BTC-driven behavior from
+token-specific behavior only for tokens with *enough daily observations*
+to actually measure correlation.
 
-- `volume_spike_ratio_btc_adj` — spike ratio of token-volume / WBTC-volume
-- `pct_volume_on_btc_extreme_days` — fraction of the token's annual volume
-  that landed on days when WBTC itself was in its top-5% volume regime
-- `peak_coincident_btc_extreme` — 1 if the token's peak-volume day was a
-  WBTC-extreme day, 0 otherwise
-- `volume_correlation_btc` — Pearson correlation of daily volumes
+**What we do instead:** keep the four v1 / temporal feature groups (6
+features) as the Layer-1 feature matrix, and use the BTC-adjusted
+features only as a downstream **annotation**. `pipeline.py` writes a
+`btc_contamination_score` column to `tokens_scored.csv` that combines
+`volume_correlation_btc`, `pct_volume_on_btc_extreme_days`, and
+`peak_coincident_btc_extreme` into a 0-1 score — and only for tokens
+with `total_days_traded >= 14`, where the BTC signals are meaningful.
 
-To activate these in the pipeline:
+Usage pattern: when the pipeline flags a token as suspicious, check its
+contamination score. Validated FRAUD HYPER (address `0x840a6c21...`)
+scores `btc_contamination = 0.026` — its anomaly signal is token-specific,
+not macro BTC. A token with high suspicion AND high contamination is a
+candidate to *discount* as likely BTC-driven noise.
 
-1. Run the SQL on Dune and export to
-   `dune queries/BTC_Normalized_Features_EXPORT.csv`.
-2. Re-run `python pipeline.py`. It auto-detects the new CSV, joins the four
-   features into the feature matrix, and all three Layer-1 detectors then
-   see them alongside the original six features.
+The full blueprint is in [dune queries/price_volume_features_btc_normalized.sql](dune%20queries/price_volume_features_btc_normalized.sql).
+When the export CSV is present at `dune queries/BTC_Normalized_Features_EXPORT.csv`,
+`pipeline.py` auto-loads it and writes the contamination column; otherwise
+it falls back to v1 features only.
 
-**Why this matters empirically:** BTC's own volume-spike ratio during the
-365-day window was only 3.75× (see [btc_analysis.py](btc_analysis.py) output).
-Our 3-vote consensus anomalies routinely show spike ratios of 100-300×, so
-the headline fraud recall result is unlikely to change — those signals are
-25-80× more extreme than BTC could explain. The normalization is most useful
-in the mid-band (tokens with spike ratios 5-20×), which sits below our current
-flagging threshold anyway.
+**Supporting context:** BTC's own volume-spike ratio during the 365-day
+window was only 3.75× (see [btc_analysis.py](btc_analysis.py) output).
+Our 3-vote consensus anomalies routinely show spike ratios of 100-300×,
+so the headline fraud recall is always going to be dominated by
+token-specific signal, not BTC. That's why BTC normalization was never
+going to move the headline number much — but the contamination
+annotation is still valuable for interpreting *why* a token was flagged.
 
 ## Files
 

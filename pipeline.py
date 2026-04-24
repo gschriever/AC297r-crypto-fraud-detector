@@ -83,30 +83,58 @@ def load_data() -> pd.DataFrame:
     df = base.merge(temporal, on="token_address", how="left")
     df["has_temporal_data"] = df["early_velocity_ratio"].notna()
 
-    # Optional BTC-normalized features.  These require a re-run of the
-    # dune queries/price_volume_features_btc_normalized.sql query and an
-    # export to BTC_NORMALIZED_CSV.  When absent, the pipeline proceeds
-    # with v1 features only.
+    # Optional BTC-normalized features. The round 2 experiment showed that
+    # including these directly in the Layer-1 ensemble *hurts* fraud recall
+    # because short-lived rug pulls have degenerate BTC features (NaN /
+    # zero correlation / zero overlap with BTC-extreme days) and get
+    # pulled toward the "normal" center once the features are imputed.
+    #
+    # We therefore load them as diagnostic *annotations* only -- surfaced
+    # in tokens_scored.csv as a per-token btc_contamination_score -- and
+    # do not include them in the feature matrix that drives Isolation
+    # Forest / DBSCAN / PCA.  Proper use: for any token the pipeline
+    # flags as suspicious, consult btc_contamination_score to decide
+    # whether the anomaly is likely BTC-driven noise.
     df["has_btc_normalized"] = False
     if BTC_NORMALIZED_CSV.exists():
         btc = pd.read_csv(BTC_NORMALIZED_CSV)
-        # Keep only the new BTC-adjusted columns; v1 columns already in df.
         keep = ["token_address"] + [c for c in BTC_FEATURES if c in btc.columns]
         df = df.merge(btc[keep], on="token_address", how="left")
-        df["has_btc_normalized"] = df[BTC_FEATURES[0]].notna() if BTC_FEATURES[0] in df.columns else False
+        if BTC_FEATURES[0] in df.columns:
+            df["has_btc_normalized"] = df[BTC_FEATURES[0]].notna()
 
     numeric_cols = STATIC_FEATURES + TEMPORAL_FEATURES
-    if df["has_btc_normalized"].any():
-        numeric_cols = numeric_cols + BTC_FEATURES
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df = df.dropna(subset=STATIC_FEATURES).copy()
 
     for col in TEMPORAL_FEATURES:
         df[col] = df[col].fillna(df[col].median())
-    for col in BTC_FEATURES:
-        if col in df.columns:
-            df[col] = df[col].fillna(df[col].median())
 
+    return df
+
+
+def compute_btc_contamination(df: pd.DataFrame) -> pd.DataFrame:
+    """Combine the four BTC-adjusted features into a 0-1 score describing
+    how much of a token's volume signal is plausibly BTC-driven.
+
+    Only meaningful for tokens with enough trading history to compute a
+    reliable correlation -- typically >= 14 days.  For shorter-lived
+    tokens the score is NaN (the BTC signal isn't defined on 1-day rugs).
+    """
+    if not all(c in df.columns for c in BTC_FEATURES):
+        df["btc_contamination_score"] = np.nan
+        return df
+
+    eligible = df["total_days_traded"] >= 14
+    corr = df["volume_correlation_btc"].clip(lower=-1, upper=1).fillna(0)
+    pct_extreme = df["pct_volume_on_btc_extreme_days"].fillna(0).clip(lower=0, upper=1)
+    peak = df["peak_coincident_btc_extreme"].fillna(0)
+
+    # Weighted average of the three most-interpretable signals.  Correlation
+    # gets the dominant weight because it's a robust continuous signal; the
+    # two extreme-day indicators add texture.
+    raw = 0.6 * corr.abs() + 0.3 * pct_extreme + 0.1 * peak
+    df["btc_contamination_score"] = np.where(eligible, raw.clip(0, 1), np.nan)
     return df
 
 
@@ -114,9 +142,9 @@ def load_data() -> pd.DataFrame:
 
 
 def build_feature_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
+    # Layer 1 uses v1 features only. BTC-adjusted features are reserved
+    # for downstream annotation (see compute_btc_contamination).
     feature_cols = STATIC_FEATURES + TEMPORAL_FEATURES
-    if df["has_btc_normalized"].any() and all(c in df.columns for c in BTC_FEATURES):
-        feature_cols = feature_cols + BTC_FEATURES
     X = df[feature_cols].copy()
     for col in LOG_FEATURES:
         if col in X.columns:
@@ -263,6 +291,7 @@ def write_artifacts(df: pd.DataFrame, pca: PCA) -> dict:
         "pca_flag",
         "consensus_votes",
         "suspicion_score",
+        "btc_contamination_score",
         "PCA1",
         "PCA2",
         "PCA3",
@@ -299,6 +328,7 @@ def main() -> None:
     X, _ = build_feature_matrix(df)
     df, _, pca = run_detectors(df, X)
     df = score_suspicion(df)
+    df = compute_btc_contamination(df)
     df = attach_validation(df)
     manifest = write_artifacts(df, pca)
 
