@@ -16,3 +16,8 @@ venv/
 archive/
 scrape_stealth.log
 parsed_presentation.txt
+
+# Third-party poster templates (reference only, too large to commit)
+poster templaates/betterposter-template-landscape.pptx
+poster templaates/SEAS Research Poster 48 x 60 Template.pdf
+poster templaates/yang_russel_template.pptx

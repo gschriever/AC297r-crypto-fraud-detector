@@ -1,0 +1,7 @@
+strategy,n_flagged,flag_rate_pct,fraud_caught,fraud_recall
+Naive: volume_spike_ratio > p95 (87.8x),217,5.01,0.0,0.0
+Random 5% sample (expected),216,5.0,0.3,0.047
+Ensemble (≥2 votes),157,3.62,1.0,0.167
+Ensemble (3 votes),98,2.26,1.0,0.167
+Ensemble (suspicion_score ≥ p90 = 0.877),435,10.04,6.0,1.0
+Ensemble (suspicion_score ≥ p85 = 0.818),650,15.0,6.0,1.0
